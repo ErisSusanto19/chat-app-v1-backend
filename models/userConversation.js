@@ -3,11 +3,13 @@ const mongoose = require('mongoose')
 const userConversationSchema = new mongoose.Schema({
     userId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
+        ref: "User",
+        required: true
     }, 
     conversationId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Conversation"
+        ref: "Conversation",
+        required: true
     },
     role: {
         type: String,
@@ -17,6 +19,9 @@ const userConversationSchema = new mongoose.Schema({
 }, {
     timestamps: true
 })
+
+//composite index untuk keperluan pencarian data agar lebih ringan (tanpa perlu membandingkan 2 foreign sekaligus)
+userConversationSchema.index({userId: 1, conversationId: 1}, {unique: true})
 
 const UserConversation = mongoose.model("UserConversation", userConversationSchema)
 module.exports = UserConversation
