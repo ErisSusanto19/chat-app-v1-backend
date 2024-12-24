@@ -50,6 +50,36 @@ class UserController {
             email: user.email
         })
     })
+
+    static getProfile = asyncHandler(async(req, res) => {
+        const user = await User.findById(req.user.id).select("-hashedPassword -__v")
+        if(!user){
+            generateError("Forbidden: You do not have permission to accses this resource.", 403)
+        }
+
+        res.status(200).json(user)
+    })
+
+    static updateProfile = asyncHandler(async(req, res) => {
+        const {name, phoneNumber, image} = req.body
+
+        const _id = req.user.id
+        const payload = {name, phoneNumber, image}
+        const options = {
+            new: true,
+            runValidators: true
+        }
+
+        const updatedUser = await User.findByIdAndUpdate(_id, payload, options).select("-hashedPassword -__v")
+
+        console.log(updatedUser, 'cek hasil update');
+        
+        if(!updatedUser){
+            generateError("Forbidden: You do not have permission to access this resource.", 403)
+        }
+
+        res.status(200).json(updatedUser)
+    })
 }
 
 module.exports = UserController
