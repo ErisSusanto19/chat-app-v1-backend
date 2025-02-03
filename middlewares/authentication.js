@@ -13,6 +13,7 @@ const authenticate = assyncHandler(async(req, res, next) => {
     const payload = decodeToken(access_token)
 
     const user = await User.findById(payload.id)
+    // console.log(user, "cek user")
 
     if(!user){
         generateError("Unauthorized: Access is denied due to invalid credentials", 401)
