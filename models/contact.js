@@ -17,17 +17,16 @@ const contactSchema = new mongoose.Schema({
         required: [true, "Email is required"],
         match: [/^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$/, "Please use a valid address email"]
     },
-    system_name: {
-        type: String,
-        trim: true,
-        required: false
-    },
     status: {
         type: String,
         trim: true,
         required: false,
         default: "Unregistered"
-    }
+    },
+    detail: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
 }, {
     timestamps: true
 })
