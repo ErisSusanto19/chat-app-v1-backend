@@ -52,7 +52,7 @@ class UserController {
     })
 
     static getProfile = asyncHandler(async(req, res) => {
-        const user = await User.findById(req.user.id).select("-hashedPassword -__v")
+        const user = await User.findById(req.user.id).select("-hashedPassword -__v").lean()
         if(!user){
             generateError("Forbidden: You do not have permission to accses this resource.", 403)
         }
