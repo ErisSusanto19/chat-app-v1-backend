@@ -7,4 +7,6 @@ router.use(authenticate)
 
 router.use("/contacts", require('./contact'))
 
+router.use("/conversations", require('./conversation'))
+
 module.exports = router
