@@ -30,6 +30,11 @@ const conversationSchema = new mongoose.Schema({
     lastMessage: {
         type: mongoose.Schema.Types.Mixed,
         default: {}
+    },
+    participant: {
+        type: [mongoose.Schema.Types.ObjectId],
+        default: null,
+        required: function() {return !this.isGroup} //For private conversation
     }
 }, {
     timestamps: true
