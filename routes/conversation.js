@@ -6,5 +6,4 @@ router.get("/:id", ConversationController.getConversationById)
 router.put("/:id", ConversationController.updateConversationById)
 router.delete("/:id", ConversationController.deleteConversationById)
 
-
 module.exports = router
