@@ -9,4 +9,6 @@ router.use("/contacts", require('./contact'))
 
 router.use("/conversations", require('./conversation'))
 
+router.use("/user-conversations", require('./userConversation'))
+
 module.exports = router
