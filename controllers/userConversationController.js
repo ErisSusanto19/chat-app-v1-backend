@@ -152,7 +152,7 @@ class UserConversationController {
                 }
             },
 
-            //5. Urutkan hasil berdasar lastMessage.timestamps atau createdAt dari userconversations
+            //5. Urutkan hasil berdasar lastMessage.createdAt atau createdAt dari userconversations
             {
                 $unwind: "$allConversation"
             },
@@ -161,7 +161,7 @@ class UserConversationController {
                     sortedByTimestamps:{
                         $cond: {
                             if: {$ne: ["$allConversation.lastMessage", null]},
-                            then: "$allConversation.lastMessage.timestamps",
+                            then: "$allConversation.lastMessage.createdAt",
                             else: "$allConversation.createdAt"
                         }
                     }
