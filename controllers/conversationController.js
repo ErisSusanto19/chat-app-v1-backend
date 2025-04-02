@@ -8,9 +8,9 @@ const Message = require('../models/message')
 
 class ConversationController {
     static addConversation = async(req, res, next) => {//Tidak memakai express-async-handler karena didalamnya terdapat transaction yang penanganan erro hasil transaction  harus manual
-        let userId = req.user.id
+        const userId = req.user.id
         let privateParticipant = null
-        let {isGroup, name, image, description, participants} = req.body
+        const {isGroup, name, image, description, participants} = req.body
         //Participants berupa array of string id saja
 
         if(!isGroup){
@@ -145,8 +145,8 @@ class ConversationController {
     }
 
     static getConversationById = asyncHandler(async(req, res) => {
-        let userId = req.user.id
-        let {id} = req.params
+        const userId = req.user.id
+        const {id} = req.params
 
         let conversation = await Conversation.findById(id).lean()
 
@@ -159,9 +159,9 @@ class ConversationController {
     })
 
     static updateConversationById = asyncHandler(async(req, res) => {
-        let userId = req.user.id
-        let {id} = req.params
-        let {name, image, description} = req.body
+        const userId = req.user.id
+        const {id} = req.params
+        const {name, image, description} = req.body
 
         let conversation = await Conversation.findById(id).lean()
         if(!conversation){
@@ -181,8 +181,8 @@ class ConversationController {
     })
 
     static deleteConversationById = async(req, res, next) => {
-        let userId = req.user.id
-        let {id} = req.params
+        const userId = req.user.id
+        const {id} = req.params
 
         const session = await mongoose.startSession()
         session.startTransaction()

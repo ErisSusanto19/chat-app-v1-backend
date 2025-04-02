@@ -39,7 +39,7 @@ class ContactController {
     })
 
     static getContact = asyncHandler(async(req, res) => {
-        let userId = req.user.id
+        const userId = req.user.id
         let unregisteredContacts = await Contact.find({userId, status: "Unregistered"}).lean()
         
         if(unregisteredContacts.length > 0){
@@ -80,8 +80,8 @@ class ContactController {
     })
 
     static getContactById = asyncHandler(async(req, res) => {
-        // let userId = req.user.id
-        let { id } = req.params
+        // const userId = req.user.id
+        const { id } = req.params
         let contact = await Contact.findById(id).lean()
         
         if(!contact){
@@ -108,9 +108,9 @@ class ContactController {
     })
 
     static updateContactById = asyncHandler(async(req, res) => {
-        let { id } = req.params
+        const { id } = req.params
         
-        let { name, email } = req.body
+        const { name, email } = req.body
 
         //Cari dulu sebegai persiapan respon data ditemukan atau tidak
         let contact = await Contact.findById(id)
@@ -143,7 +143,7 @@ class ContactController {
     })
 
     static deleteContactById = asyncHandler(async(req, res) => {
-        let {id} = req.params
+        const {id} = req.params
 
         let contact = await Contact.findById(id).lean()
         if(!contact){
