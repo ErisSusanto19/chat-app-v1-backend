@@ -1,6 +1,10 @@
 const assyncHandler = require('express-async-handler')
 const UserConversation = require('../models/userConversation')
 const mongoose = require('mongoose')
+const Conversation = require('../models/conversation')
+const generateError = require('../helpers/generateError')
+const User = require('../models/user')
+const Message = require('../models/message')
 
 class UserConversationController {
     static getUserConversations = assyncHandler(async(req, res) => {
@@ -178,6 +182,78 @@ class UserConversationController {
 
         res.status(200).json(userConversations)
     })
+
+    //Ini untuk keperluan menambah anggota group
+    static addPivotUserConversation = async(req, res, next) => {
+        const userId = req.user.id
+        const conversartionId = req.params
+
+        //Participants berisi array of email yang diambil dari contact
+        const {participants} = req.body
+
+        const session = await mongoose.startSession()
+        session.startTransaction()
+
+        try {
+            let conversation = await Conversation.findById(conversartionId).session(session).lean()
+            if(!conversation){
+                generateError("Conversation not found", 404)
+            }
+            if(conversation.isGroup !== true){
+                generateError("This feature is only available for group conversations.")
+            }
+
+            if(!Array.isArray(participants)){
+                generateError("Participants must be an array", 400)
+            }
+            if(participants.length < 1){
+                generateError("Adding a member to a group requires a valid contact", 400)
+            }
+
+            //Cari master user berdasar email contact
+            let registeredUsers = await User.find({email: {$in: participants}}).session(session).select("name email image").lean()
+            if(registeredUsers.length !== participants.length){
+                generateError("One or more contacts are not regitered users", 400)
+            }
+
+            let dataEntriesPivots = []
+            registeredUsers.map(user => {
+                dataEntriesPivots.push({
+                    userId: user._id,
+                    conversartionId,
+                    role: "Member"
+                })
+            })
+
+            //Buat Pivot
+            let userConversations = await UserConversation.insertMany(dataEntriesPivots, {session})
+
+            let dataEntriesMessages = []
+            registeredUsers.map(user => {
+                dataEntriesMessages.push({
+                    senderId: userId,
+                    conversartionId,
+                    content: {
+                        type: "notification",
+                        url: null,
+                        message: `${user.email} joined this group`
+                    }
+                })
+            })
+
+            //Buat message notofication
+            let notifications = await Message.insertMany(dataEntriesMessages, {session})
+
+            res.status(201).json(userConversations)
+        } catch (error) {
+            await session.abortTransaction()
+            session.endSession()
+
+            next(error)
+        } finally{
+            session.endSession()
+        }
+    }
 }
 
 module.exports = UserConversationController

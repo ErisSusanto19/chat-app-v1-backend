@@ -27,6 +27,7 @@ class ContactController {
         const newContact = await Contact.create({
             userId, name, email, status
         })
+        
         if(!newContact){
             generateError("Failed to save contact", 400)
         }
@@ -89,7 +90,7 @@ class ContactController {
         }
         
         //Cek apakah contact adalah user terdaftar
-        if(contact.status = 'Unregistered'){
+        if(contact.status == 'Unregistered'){
             let user = await User.findOne({email: contact.email}).select('name email image').lean()
 
             if(user){

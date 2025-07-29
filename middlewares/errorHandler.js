@@ -22,8 +22,9 @@ const erroHandler = (err, req, res, next) => {
     // console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
     
     res.status(code).json({
+        status_code: code,
         message,
-        stack: process.env.NODE_ENV === "production"? null : err.stack
+        // stack: process.env.NODE_ENV === "production"? null : err.stack
     })
 }
 

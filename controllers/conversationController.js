@@ -11,11 +11,7 @@ class ConversationController {
         const userId = req.user.id
         let privateParticipant = null
         const {isGroup, name, image, description, participants} = req.body
-        //Participants berupa array of string id saja
-
-        if(!isGroup){
-            privateParticipant = [userId, participants[0]]
-        }
+        //Participants berupa array of string email dari contact
 
         const session = await mongoose.startSession()
         session.startTransaction()
@@ -41,41 +37,16 @@ class ConversationController {
             }
 
             //Cek status registered pada tiap participant, karena conversation(private/group) akan dibuat jika participant berstatus registered
-            let registeredUsers = await User.find({_id: {$in: participants}}).session(session).lean()
+            let registeredUsers = await User.find({email: {$in: participants}}).session(session).lean()
 
             if(registeredUsers.length != participants.length){
                 generateError("One or more contacts are not registered users.", 400)
             }
 
             //Cek keberadaan conversation sebelumnya (khusus untuk private)
-            /*let oldConversations = await Conversation.aggregate([
-                {$match: { 
-                        isGroup: false, 
-                        createdBy: { $in: [userId, participants[0]] } 
-                }},
-                {$lookup:{
-                    from: "userconversations", // Nama collection yang dihubungkan
-                    localField: "_id", // Field di collection "conversations"
-                    foreignField: "conversationId", // Field di "userConversations" yang cocok
-                    as: "userConversation" // Hasilnya akan disimpan di array "userConversation"
-                }},
-                {$unwind: { 
-                        path: "$userConversation", 
-                        preserveNullAndEmptyArrays: true  // Memastikan hasil tidak hilang meski tidak ada kecocokan
-                }},
-                {$match: { 
-                        $or: [
-                            { "userConversation.userId": userId },
-                            { "userConversation.userId": participants[0] }
-                        ]
-                }},
-                { $limit: 1 }
-            ]).session(session)*/
-
-            //Cek keberadaan conversation sebelumnya (khusus untuk private)
             let oldConversation = await Conversation.findOne({
                 isGroup: false,
-                participant: {$all: [userId, participants[0]]}
+                participant: {$all: [userId, registeredUsers[0]._id]}
             })
 
             // console.log(oldConversation, '<<< old conversation');
@@ -92,6 +63,10 @@ class ConversationController {
             //Jika conversation adalah bukan untuk group, maka hanya perlu nilai isGroup dan createdBy saja.
             //Create dalam transaction membutuhkan argument pertama berbentuk array meski hanya 1 data. Jika tidak, maka skenario rollback tidak akan terjadi, bahkan data bisa tercreate 2 kali.
             //Kembaliannya akan berbentuk array
+            if(!isGroup){
+                privateParticipant = [userId, registeredUsers[0]._id]
+            }
+
             let newConversation = await Conversation.create([{
                 isGroup,
                 name,
@@ -163,6 +138,8 @@ class ConversationController {
         const {id} = req.params
         const {name, image, description} = req.body
 
+        let user = await User.findById(userId).lean()
+
         let conversation = await Conversation.findById(id).lean()
         if(!conversation){
             generateError("Conversation not found", 404)
@@ -176,7 +153,10 @@ class ConversationController {
             generateError("Failed to update conversation", 500)
         }
 
-        res.status(200).json(updatedConversation)
+        res.status(200).json({
+            message: `Group has been updated by ${user.name}`,
+            data: updatedConversation
+        })
 
     })
 
@@ -189,9 +169,9 @@ class ConversationController {
 
         try {
             let conversation = await Conversation.findById(id).session(session).lean()
-            if(!conversation){
-                generateError("Conversation not found", 404)
-            }
+            // if(!conversation){
+            //     generateError("Conversation not found", 404)
+            // }
 
             let deletedConversation = await Conversation.findByIdAndDelete(id).session(session).lean()
             if(!deletedConversation){
