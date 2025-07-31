@@ -5,6 +5,7 @@ const authenticate = require('../middlewares/authentication')
 router.post("/register", UserController.register)
 router.post("/login", UserController.login)
 router.get("/profile", authenticate, UserController.getProfile)
-router.patch("/update-profile", authenticate, UserController.updateProfile)
+router.put("/profile", authenticate, UserController.updateProfile)
+router.get("/cloudinary-signature", authenticate, UserController.getCloudinarySignature);
 
 module.exports = router

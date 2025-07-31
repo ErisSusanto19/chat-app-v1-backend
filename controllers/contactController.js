@@ -103,6 +103,11 @@ class ContactController {
                 contact.detail = user
 
             }
+        } else {
+            const user = await User.findOne({ email: contact.email }).select('name email image').lean()
+            if (user) {
+                contact.detail = user
+            }
         }
 
         res.status(200).json(contact)
