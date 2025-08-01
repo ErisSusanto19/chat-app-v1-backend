@@ -40,6 +40,8 @@ class ContactController {
     })
 
     static getContact = asyncHandler(async(req, res) => {
+        const { search, page = 1, limit = 7 } = req.query;
+
         const userId = req.user.id
         let unregisteredContacts = await Contact.find({userId, status: "Unregistered"}).lean()
         
@@ -67,7 +69,24 @@ class ContactController {
             }
         }
 
-        let contacts = await Contact.find({userId}).lean()
+        let query = { userId }; 
+
+        if (search) {
+            const searchRegex = new RegExp(search, 'i');
+            query.$or = [
+                { name: { $regex: searchRegex } },
+                { email: { $regex: searchRegex } }
+            ];
+        }
+
+        const contacts = await Contact.find(query)
+        .sort({ name: 1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .lean();
+
+        const count = await Contact.countDocuments(query);
+
         let emails = contacts.map(c => c.email)
         
         let users = await User.find({email: {$in: emails}}).select('name email image').lean()
@@ -77,7 +96,11 @@ class ContactController {
             detail: users.find(u => u.email === c.email) || {}
         }))
 
-        res.status(200).json(completedContacts)
+        res.status(200).json({
+            contacts: completedContacts,
+            totalPages: Math.ceil(count / limit),
+            currentPage: page
+        })
     })
 
     static getContactById = asyncHandler(async(req, res) => {
