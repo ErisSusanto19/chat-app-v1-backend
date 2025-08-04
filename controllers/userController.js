@@ -24,6 +24,7 @@ class UserController {
 
         res.status(201).json({
             access_token: encodeToken({id: newUser._id}),
+            _id: newUser._id,
             name: newUser.name,
             email: newUser.email,
             image: newUser.image
@@ -55,6 +56,7 @@ class UserController {
 
         res.status(200).json({
             access_token: encodeToken({id: user._id}),
+            _id: user._id,
             name: user.name,
             email: user.email,
             image: user.image

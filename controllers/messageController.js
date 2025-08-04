@@ -6,8 +6,11 @@ const generateError = require('../helpers/generateError')
 
 class MessageController {
     static addMessage = async(req, res, next) => {
+        const { conversationId } = req.params
         const userId = req.user.id
-        const {conversationId, type, url, message } = req.body
+        const { type, url, message } = req.body
+        console.log(conversationId, '<<< cek conversationId');
+        
         if(!conversationId){
             generateError("Conversation ID is required", 400)
         }
@@ -27,10 +30,15 @@ class MessageController {
         session.startTransaction()
 
         try {
-            let message = await Message.create({
-                conversationId,
-                content
-            }, {session})
+            let messages = await Message.create([
+                {
+                    conversationId,
+                    content,
+                    senderId: userId,
+                }
+            ], {session})
+
+            const message = messages[0];
 
             if(!message){
                 generateError("Failed to create message", 500)
@@ -44,7 +52,8 @@ class MessageController {
                             message_id: message._id,
                             content: message.content,
                             createdAt: message.createdAt,
-                            status: message.status
+                            status: message.status,
+                            senderId: message.senderId
                         }
                     }
                 },
@@ -68,7 +77,7 @@ class MessageController {
 
     static getMessages = asyncHandler(async(req, res) => {
         const userId = req.user.id
-        const {conversationId} = req.body
+        const { conversationId } = req.params
         if(!conversationId){
             generateError("Conversation ID is required", 400)
         }
@@ -126,7 +135,7 @@ class MessageController {
 
     static updateReadMessages = async(req, res, next) => {
         const userId = req.user.id
-        const {conversationId} = req.body
+        const { conversationId } = req.params
         if(!conversationId){
             generateError("Conversation ID is required", 400)
         }
@@ -165,8 +174,8 @@ class MessageController {
 
     static editMessage = async(req, res, next) => {
         const userId = req.user.id
-        const {id} = req.params
-        const {conversationId, type, url, message} = req.body
+        const { conversationId, id } = req.params
+        const { type, url, message} = req.body
 
         let messageById = await Message.findById(id).lean()
         if(!messageById){

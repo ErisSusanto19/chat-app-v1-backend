@@ -27,11 +27,10 @@ const messageSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
-    disappearFor: {
+    disappearFor: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
-        default: []
-    },
+    }],
     disappearForAll: {
         type: Boolean,
         default: false

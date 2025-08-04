@@ -5,6 +5,7 @@ const generateError = require('../helpers/generateError')
 const User = require('../models/user')
 const UserConversation = require('../models/userConversation')
 const Message = require('../models/message')
+const Contact = require('../models/contact')
 
 class ConversationController {
     static addConversation = async(req, res, next) => {//Tidak memakai express-async-handler karena didalamnya terdapat transaction yang penanganan erro hasil transaction  harus manual
@@ -134,11 +135,38 @@ class ConversationController {
 
     static getConversationById = asyncHandler(async(req, res) => {
         const userId = req.user.id
-        const {id} = req.params
+        const { id } = req.params
 
         let conversation = await Conversation.findById(id).lean()
+        if (!conversation) {
+            return generateError("Conversation not found", 404);
+        }
+        
+        let messages = await Message.find({conversationId: id}).lean()
 
-        let messages = await Message.find({conversartionId: id}).lean()
+        if (!conversation.isGroup) {
+            const partnerId = conversation.participant.find(pId => pId.toString() !== userId.toString());
+
+            if (partnerId) {
+                const partner =  await User.findById(partnerId).select('name email image').lean()
+
+                if(partner){
+                    const contact = await Contact.findOne({ 
+                        userId: userId, 
+                        email: partner.email
+                    }).lean();
+
+                    if (contact && contact.name) {
+                        conversation.name = contact.name;
+                    } else {
+                        conversation.name = partner.name;
+                    }
+
+                    conversation.partnerDetails = partner;
+                }
+
+            }
+        }
 
         res.status(200).json({
             ... conversation,
@@ -192,7 +220,7 @@ class ConversationController {
             }
             
             await UserConversation.deleteMany({conversationId: deletedConversation._id}).session(session)
-            await Message.deleteMany({conversartionId: deletedConversation._id}).session(session)
+            await Message.deleteMany({conversationId: deletedConversation._id}).session(session)
 
             await session.commitTransaction()
             session.endSession()
