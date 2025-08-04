@@ -128,6 +128,45 @@ class UserConversationController {
                                 }
                             }
                         },
+
+                        // //Join ke collection 'contacts'. Cari di daftar kontak milik PENGGUNA SAAT INI (currentUser)
+                        // untuk melihat apakah ada entri yang cocok dengan ID partner chat.
+                        {
+                            $lookup: {
+                                from: "contacts",
+                                let: { 
+                                    currentUser: "$userId",
+                                    partnerEmail: "$partner.email"
+                                },
+                                pipeline: [
+                                    {
+                                        $match: {
+                                            $expr: {
+                                                $and: [
+                                                    { $eq: ["$userId", "$$currentUser"] }, 
+                                                    { $eq: ["$email", "$$partnerEmail"] } // Asumsi field di contact adalah 'contactUserId'
+                                                ]
+                                            }
+                                        }
+                                    }
+                                ],
+                                as: "contactDetails"
+                            }
+                        },
+
+                        // Prioritaskan nama dari 'contacts', jika tidak ada, baru gunakan nama dari 'users'.
+                        {
+                            $addFields: {
+                                contactEntry: { $arrayElemAt: ["$contactDetails", 0] }
+                            }
+                        },
+                        {
+                            $addFields: {
+                                displayName: {
+                                    $ifNull: ["$contactEntry.name", "$partner.name"]
+                                }
+                            }
+                        },
             
                         //Sajikan data dalam bentuk yang diinginkan
                         {
@@ -136,7 +175,7 @@ class UserConversationController {
                                 role: 1,
                                 isGroup: "$conversation.isGroup",
                                 conversationId: "$conversation._id",
-                                name: "$partner.name",
+                                name: "$displayName",
                                 image: "$partner.image",
                                 lastMessage: "$conversation.lastMessage",
                                 createdAt: 1,

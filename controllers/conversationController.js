@@ -8,8 +8,8 @@ const Message = require('../models/message')
 
 class ConversationController {
     static addConversation = async(req, res, next) => {//Tidak memakai express-async-handler karena didalamnya terdapat transaction yang penanganan erro hasil transaction  harus manual
+        
         const userId = req.user.id
-        let privateParticipant = null
         const {isGroup, name, image, description, participants} = req.body
         //Participants berupa array of string email dari contact
 
@@ -43,71 +43,84 @@ class ConversationController {
                 generateError("One or more contacts are not registered users.", 400)
             }
 
-            //Cek keberadaan conversation sebelumnya (khusus untuk private)
-            let oldConversation = await Conversation.findOne({
-                isGroup: false,
-                participant: {$all: [userId, registeredUsers[0]._id]}
-            })
+            if (!isGroup) {
+                const partnerId = registeredUsers[0]._id;
 
-            // console.log(oldConversation, '<<< old conversation');
+                const oldConversation = await Conversation.findOne({
+                    isGroup: false,
+                    participant: { $all: [userId, partnerId], $size: 2 }
+                }).session(session);
 
-            if(oldConversation){
-                await session.commitTransaction()
-                session.endSession()
-                return res.status(200).json({
-                    message: "Conversation successfully opened",
-                    data: oldConversation
-                })
-            }
-
-            //Jika conversation adalah bukan untuk group, maka hanya perlu nilai isGroup dan createdBy saja.
-            //Create dalam transaction membutuhkan argument pertama berbentuk array meski hanya 1 data. Jika tidak, maka skenario rollback tidak akan terjadi, bahkan data bisa tercreate 2 kali.
-            //Kembaliannya akan berbentuk array
-            if(!isGroup){
-                privateParticipant = [userId, registeredUsers[0]._id]
-            }
-
-            let newConversation = await Conversation.create([{
-                isGroup,
-                name,
-                image,
-                description,
-                createdBy: userId,
-                participant: privateParticipant
-            }], {session})
-
-            // console.log(newConversation[0], '<<< newConversation');
-
-            if(newConversation.length < 1){
-                generateError(isGroup? "Failed to create group conversation" : "Failed to start private conversation", 400)
-            }
-
-            let dataEntries = [
-                {
-                    userId, 
-                    conversationId: newConversation[0]._id, 
-                    role: isGroup? "Admin" : null
+                if (oldConversation) {
+                    await session.commitTransaction();
+                    session.endSession();
+                    return res.status(200).json({
+                        message: "Conversation successfully opened",
+                        data: oldConversation
+                    });
                 }
-            ]
 
-            participants.map(id => {
-                dataEntries.push({
-                    userId: id,
-                    conversationId: newConversation[0]._id,
-                    role: isGroup? "Member" : null
-                })
-            })
+                const newConversationArr = await Conversation.create([{
+                    isGroup: false,
+                    createdBy: userId,
+                    participant: [userId, partnerId]
+                }], { session });
 
-            //Buat pivot
-            let userConversation = await UserConversation.insertMany(dataEntries, {session})
+                const newConversation = newConversationArr[0];
+                
+                const dataEntries = [
+                    { userId, conversationId: newConversation._id, role: null },
+                    { userId: partnerId, conversationId: newConversation._id, role: null }
+                ];
+                await UserConversation.insertMany(dataEntries, { session });
 
-            await session.commitTransaction()
-            session.endSession()
+                await session.commitTransaction();
+                session.endSession();
+                
+                return res.status(201).json({
+                    message: "Conversation successfully created",
+                    data: newConversation
+                });
 
-            return res.status(201).json({
-                message: "Conversation successfully created",
-                data: newConversation[0]
-            })
+            } else {
+
+                const newConversationArr = await Conversation.create([{
+                    isGroup: true,
+                    name,
+                    image,
+                    description,
+                    createdBy: userId
+                }], { session });
+
+                const newConversation = newConversationArr[0];
+                if (!newConversation) {
+                    generateError("Failed to create group conversation", 400);
+                }
+
+                let dataEntries = [{
+                    userId, 
+                    conversationId: newConversation._id, 
+                    role: "Admin"
+                }];
+
+                registeredUsers.forEach(user => {
+                    dataEntries.push({
+                        userId: user._id,
+                        conversationId: newConversation._id,
+                        role: "Member"
+                    });
+                });
+
+                await UserConversation.insertMany(dataEntries, { session });
+
+                await session.commitTransaction();
+                session.endSession();
+                
+                return res.status(201).json({
+                    message: "Conversation successfully created",
+                    data: newConversation
+                });
+            }
 
         } catch (error) {
             await session.abortTransaction()

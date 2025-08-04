@@ -39,8 +39,10 @@ class ContactController {
         
     })
 
-    static getContact = asyncHandler(async(req, res) => {
-        const { search, page = 1, limit = 7 } = req.query;
+    static getContacts = asyncHandler(async(req, res) => {
+        console.log("masuk get contacts");
+        
+        const { search, page = 1, limit = 15 } = req.query;
 
         const userId = req.user.id
         let unregisteredContacts = await Contact.find({userId, status: "Unregistered"}).lean()
@@ -183,6 +185,33 @@ class ContactController {
 
         res.status(200).json({... deletedContact, message: `Contact with name "${deletedContact.name}" and email "${deletedContact.email}" successfully deleted`})
     })
+
+    static getAllContactsForSelect = asyncHandler(async (req, res) => {
+        const { search } = req.query;
+    
+        let query = { userId: req.user.id };
+
+        if (search) {
+            const searchRegex = new RegExp(search, 'i');
+            query.$or = [
+                { name: { $regex: searchRegex } },
+                { email: { $regex: searchRegex } }
+            ];
+        }
+
+        const contacts = await Contact.find(query)
+            .sort({ name: 1 })
+            .limit(15)
+            .select("name email")
+            .lean();
+        
+        const options = contacts.map(c => ({
+            value: c.email,
+            label: c.name
+        }));
+
+        res.status(200).json(options);
+    });
 }
 
 module.exports = ContactController
