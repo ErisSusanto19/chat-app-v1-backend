@@ -2,20 +2,22 @@ const asyncHandler = require('express-async-handler')
 const { default: mongoose } = require('mongoose')
 const Message = require('../models/message')
 const Conversation = require('../models/conversation')
+const UserConversation = require('../models/userConversation')
 const generateError = require('../helpers/generateError')
 
 class MessageController {
     static addMessage = async(req, res, next) => {
         const { conversationId } = req.params
         const userId = req.user.id
-        const { type, url, message } = req.body
-        console.log(conversationId, '<<< cek conversationId');
+        const { content } = req.body
         
         if(!conversationId){
             generateError("Conversation ID is required", 400)
         }
 
-        let content = {type, url, message}
+        if (!content || typeof content.message !== 'string' || content.message.trim() === '') {
+            generateError("Message content is invalid or empty", 400);
+        }
 
         //isi content adalah:
         /**
@@ -67,7 +69,7 @@ class MessageController {
 
         } catch (error) {
             await session.abortTransaction()
-            session.endSession
+            session.endSession()
 
             next(error)
         } finally{
@@ -80,6 +82,11 @@ class MessageController {
         const { conversationId } = req.params
         if(!conversationId){
             generateError("Conversation ID is required", 400)
+        }
+
+        const isParticipant = await UserConversation.findOne({ userId, conversationId });
+        if (!isParticipant) {
+            generateError("Access denied", 403);
         }
 
         let messages = await Message.find({conversationId}).lean()
@@ -119,17 +126,17 @@ class MessageController {
             )
 
             await session.commitTransaction()
-            session.endSession
+            session.endSession()
 
             res.status(200).json(deliveredMessages)
 
         } catch (error) {
             await session.abortTransaction()
-            session.endSession
+            session.endSession()
 
             next(error)
         } finally{
-            session.endSession
+            session.endSession()
         }
     }
 
@@ -164,7 +171,7 @@ class MessageController {
 
         } catch (error) {
             await session.abortTransaction()
-            session.endSession
+            session.endSession()
 
             next(error)
         } finally{
@@ -174,35 +181,63 @@ class MessageController {
 
     static editMessage = async(req, res, next) => {
         const userId = req.user.id
-        const { conversationId, id } = req.params
-        const { type, url, message} = req.body
+        const { conversationId, id: messageId } = req.params
+        const { content } = req.body
 
-        let messageById = await Message.findById(id).lean()
-        if(!messageById){
-            generateError("Message not found", 404)
-        }
-
-        if(type !== "text"){
-            generateError("You can only edit text messages", 400)
-        }
-
-        const now = new Date()
-        const diff = now - message.createdAt
-        const limitEditMs = 15 * 60 * 1000 //15 menit atau 900.000 ms
-
-        if(diff > limitEditMs){
-            generateError("The time limit for editing this message has expired", 400)
-        }
-
-        let content = {type, url, image}
-
+        
         const session = await mongoose.startSession()
         session.startTransaction()
         
         try {
-            let editedMessage = await Message.findById(id, {$set: {content, isEdited: true}}, {new: true}).session(session).lean()
+            if (!content || typeof content.message !== 'string' || content.message.trim() === '') {
+                generateError("Message content is invalid or empty", 400);
+            }
 
-            let editedLastMessage = await Conversation.findByIdAndUpdate(conversationId, {$set: {"lastMessage.content": content}}, {new: true}).session(session).lean()
+            let originalMessage = await Message.findById(messageId).session(session)
+            if(!originalMessage){
+                generateError("Message not found", 404)
+            }
+
+            if (originalMessage.senderId.toString() !== userId.toString()) {
+                generateError("You can only edit your own messages", 403);
+            }
+    
+            if (originalMessage.content.type !== "text") {
+                generateError("You can only edit text messages", 400);
+            }
+    
+            const now = new Date();
+            const diff = now - originalMessage.createdAt;
+            const limitEditMs = 15 * 60 * 1000; // 15 menit atau 900.000 ms
+    
+            if(diff > limitEditMs){
+                generateError("The time limit for editing this message has expired", 400)
+            }
+    
+
+            const editedMessage = await Message.findByIdAndUpdate(
+                messageId,
+                {
+                    $set: {
+                        content: {
+                            ...originalMessage.content,
+                            message: content.message
+                        },
+
+                        isEdited: true
+                    }
+                },
+                { new: true, session }
+            ).lean();
+
+            const conversation = await Conversation.findById(conversationId).session(session);
+            if (conversation && conversation.lastMessage && conversation.lastMessage.message_id.toString() === messageId.toString()) {
+                await Conversation.findByIdAndUpdate(
+                    conversationId,
+                    { $set: { "lastMessage.content": editedMessage.content } },
+                    { session }
+                );
+            }
 
             await session.commitTransaction()
             session.endSession()
@@ -220,32 +255,76 @@ class MessageController {
 
     }
 
-    static deleteMessageForMe = asyncHandler(async(req, res) => {
-        const userId = req.user.id
-        const {id} = req.params
+    static deleteMessageForMe = asyncHandler(async (req, res) => {
+        const userId = req.user.id;
+        const { id: messageId } = req.params;
 
-        let message = await Message.findById(id).lean()
-        if(!message){
-            generateError("Message not found", 404)
+        const isParticipant = await UserConversation.findOne({ 
+            userId: userId, 
+            conversationId: (await Message.findById(messageId).select('conversationId')).conversationId
+        });
+
+        if (!isParticipant) {
+            return generateError("You cannot modify messages in a conversation you are not part of.", 403);
         }
-
-        let deletedMessageForMe = await Message.findByIdAndUpdate(id, {$addToSet: {disappearFor: userId}}, {new: true}).lean()
-
-        res.status(200).json(deletedMessageForMe)
-    })
-
-    static deleteMessageForAll = asyncHandler(async(req, res) => {
-        const {id} = req.params
         
-        let message = await Message.findById(id).lean()
-        if(!message){
-            generateError("Message not found", 404)
+        const updatedMessage = await Message.findByIdAndUpdate(
+            messageId, 
+            { $addToSet: { disappearFor: userId } }, 
+            { new: true }
+        ).lean();
+        
+        if (!updatedMessage) {
+            return generateError("Message not found", 404);
+        }
+        
+        res.status(200).json(updatedMessage);
+    });
+
+    static deleteMessageForAll = asyncHandler(async (req, res) => {
+        const userId = req.user.id;
+        const { id: messageId } = req.params;
+        
+        const message = await Message.findById(messageId);
+        if (!message) {
+            return generateError("Message not found", 404);
         }
 
-        let deletedMessageForAll = await Message.findByIdAndUpdate(id, {$set: {disappearForAll: true}}, {new: true}).lean()
+        if (message.senderId.toString() !== userId.toString()) {
+            return generateError("You can only delete your own messages for everyone.", 403);
+        }
 
-        res.status(200).json(deletedMessageForAll)
-    }) 
+        const now = new Date();
+        const diff = now - message.createdAt;
+        const limitDeleteMs = 15 * 60 * 1000; // 15 menit
+
+        if (diff > limitDeleteMs) {
+            return generateError("The time limit for deleting this message for everyone has expired.", 400);
+        }
+        
+        const updatedMessage = await Message.findByIdAndUpdate(
+            messageId, 
+            { 
+                $set: { 
+                    "content.message": "This message was deleted by the sender.",
+                    "content.type": "notification",
+                    "content.url": null,
+                    disappearForAll: true
+                } 
+            }, 
+            { new: true }
+        ).lean();
+        
+        const conversation = await Conversation.findById(message.conversationId);
+        if (conversation?.lastMessage?.message_id?.toString() === messageId.toString()) {
+            await Conversation.findByIdAndUpdate(
+                message.conversationId,
+                { $set: { "lastMessage.content": updatedMessage.content } }
+            );
+        }
+
+        res.status(200).json(updatedMessage);
+    }); 
 }
 
 module.exports = MessageController
