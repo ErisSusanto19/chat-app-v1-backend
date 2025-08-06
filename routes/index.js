@@ -13,4 +13,6 @@ router.use("/user-conversations", require('./userConversation'))
 
 router.use("/conversations/:conversationId/messages", require('./message'))
 
+router.use("/utilities", require('./utility'))
+
 module.exports = router

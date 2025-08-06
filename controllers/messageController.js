@@ -6,6 +6,43 @@ const UserConversation = require('../models/userConversation')
 const generateError = require('../helpers/generateError')
 
 class MessageController {
+    static createAndSaveMessage = async (conversationId, senderId, content) => {
+        const session = await mongoose.startSession()
+        session.startTransaction()
+        try {
+            const messages = await Message.create([{ conversationId, senderId, content }], { session });
+            const message = messages[0]
+
+            await Conversation.findByIdAndUpdate(
+                conversationId,
+                {
+                    $set: {
+                        lastMessage: {
+                            message_id: message._id,
+                            content: message.content,
+                            createdAt: message.createdAt,
+                            status: message.status,
+                            senderId: message.senderId
+                        }
+                    }
+                },
+                {new: true}
+            ).session(session)
+
+            await session.commitTransaction();
+            session.endSession();
+            return message;
+
+        } catch (error) {
+            await session.abortTransaction();
+            session.endSession();
+
+            throw error; 
+        } finally{
+            session.endSession()
+        }
+    }
+
     static addMessage = async(req, res, next) => {
         const { conversationId } = req.params
         const userId = req.user.id
@@ -28,53 +65,13 @@ class MessageController {
          }
          */
         
-        const session = await mongoose.startSession()
-        session.startTransaction()
+        const newMessage = await MessageController.createAndSaveMessage(
+            conversationId,
+            userId,
+            content
+        );
 
-        try {
-            let messages = await Message.create([
-                {
-                    conversationId,
-                    content,
-                    senderId: userId,
-                }
-            ], {session})
-
-            const message = messages[0];
-
-            if(!message){
-                generateError("Failed to create message", 500)
-            }
-
-            let updatedConversation =  await Conversation.findByIdAndUpdate(
-                conversationId,
-                {
-                    $set: {
-                        lastMessage: {
-                            message_id: message._id,
-                            content: message.content,
-                            createdAt: message.createdAt,
-                            status: message.status,
-                            senderId: message.senderId
-                        }
-                    }
-                },
-                {new: true}
-            ).session(session)
-
-            await session.commitTransaction()
-            session.endSession()
-
-            res.status(201).json(message)
-
-        } catch (error) {
-            await session.abortTransaction()
-            session.endSession()
-
-            next(error)
-        } finally{
-            session.endSession()
-        }
+        res.status(201).json(newMessage)
     }
 
     static getMessages = asyncHandler(async(req, res) => {
