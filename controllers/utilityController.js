@@ -11,9 +11,10 @@ cloudinary.config({
 class UtilityController {
     static getCloudinarySignature = asyncHandler(async (req, res) => {
         const timestamp = Math.round((new Date()).getTime() / 1000);
+        const folder = req.query.folder || 'default_uploads';
 
         const signature = cloudinary.utils.api_sign_request(
-            { timestamp, folder: 'chat_media' },
+            { timestamp, folder },
             process.env.CLOUDINARY_API_SECRET
         );
 

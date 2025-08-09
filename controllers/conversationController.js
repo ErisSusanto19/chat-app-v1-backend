@@ -80,7 +80,8 @@ class ConversationController {
                 
                 return res.status(201).json({
                     message: "Conversation successfully created",
-                    data: newConversation
+                    // data: newConversation
+                    data: { conversationId: newConversation._id }
                 });
 
             } else {
@@ -119,7 +120,8 @@ class ConversationController {
                 
                 return res.status(201).json({
                     message: "Conversation successfully created",
-                    data: newConversation
+                    // data: newConversation
+                    data: { conversationId: newConversation._id }
                 });
             }
 

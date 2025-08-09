@@ -4,6 +4,8 @@ require('colors')
 require('dotenv').config()
 const MessageController = require('./controllers/messageController')
 const UserConversation = require('./models/userConversation')
+const Message = require('./models/message')
+const mongoose = require('mongoose')
 
 const express = require('express')
 const { createServer } = require('http')
@@ -21,6 +23,41 @@ const io = new Server(httpServer, {
         methods: ["GET", "POST"]
     }
 })
+
+async function getCompleteConversationForUser(userId, conversationId) {
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const conversationObjectId = new mongoose.Types.ObjectId(conversationId);
+
+    const result = await UserConversation.aggregate([
+        { $match: { userId: userObjectId, conversationId: conversationObjectId } },
+        { $lookup: { from: "conversations", localField: "conversationId", foreignField: "_id", as: "conversation" } },
+        { $unwind: "$conversation" },
+        {
+            $facet: {
+                groupConversation: [
+                    { $match: { "conversation.isGroup": true } },
+                    { $project: { _id: 1, role: 1, isGroup: "$conversation.isGroup", conversationId: "$conversation._id", name: "$conversation.name", image: "$conversation.image", lastMessage: "$conversation.lastMessage", createdAt: 1, updatedAt: 1 } }
+                ],
+                privateConversation: [
+                    { $match: { "conversation.isGroup": false } },
+                    { $lookup: { from: "userconversations", let: { conversationId: "$conversationId", currentUser: "$userId" }, pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$conversationId", "$$conversationId"] }, { $ne: ["$userId", "$$currentUser"] }] } } }], as: "pivotPartner" } },
+                    { $addFields: { pivotPartnerId: { $ifNull: [{ $getField: { field: "userId", input: { $arrayElemAt: ["$pivotPartner", 0] } } }, null] } } },
+                    { $lookup: { from: "users", let: { partnerId: "$pivotPartnerId" }, pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$_id", "$$partnerId"] }] } } }, { $project: { _id: 1, name: 1, email: 1, image: 1 } }], as: "partner" } },
+                    { $addFields: { partner: { $cond: { if: { $gt: [{ $size: "$partner" }, 0] }, then: { $arrayElemAt: ["$partner", 0] }, else: null } } } },
+                    { $lookup: { from: "contacts", let: { currentUser: "$userId", partnerEmail: "$partner.email" }, pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$userId", "$$currentUser"] }, { $eq: ["$email", "$$partnerEmail"] }] } } }], as: "contactDetails" } },
+                    { $addFields: { contactEntry: { $arrayElemAt: ["$contactDetails", 0] } } },
+                    { $addFields: { displayName: { $ifNull: ["$contactEntry.name", "$partner.name"] } } },
+                    { $project: { _id: 1, role: 1, isGroup: "$conversation.isGroup", conversationId: "$conversation._id", name: "$displayName", image: "$partner.image", lastMessage: "$conversation.lastMessage", createdAt: 1, updatedAt: 1, partner: 1 } }
+                ]
+            }
+        },
+        { $project: { allConversation: { $setUnion: ["$groupConversation", "$privateConversation"] } } },
+        { $unwind: "$allConversation" },
+        { $replaceRoot: { newRoot: "$allConversation" } }
+    ]);
+
+    return result.length > 0 ? result[0] : null;
+}
 
 app.use(cors())
 app.use(express.urlencoded({extended: false}))
@@ -58,19 +95,43 @@ io.on("connection", (socket) => {
 
     socket.on('send_message', async (data) => {
         try {
-
             if (data.senderId !== socket.userId) {
                 console.warn(`[SECURITY] senderId mismatch! Socket User: ${socket.userId}, Payload User: ${data.senderId}`);
                 return;
             }
 
             const { conversationId, senderId, content } = data;
+            
+            const messageCount = await Message.countDocuments({ conversationId });
+            const isFirstMessage = messageCount === 0;
+
             const newMessage = await MessageController.createAndSaveMessage(conversationId, senderId, content);
 
             io.to(conversationId).emit('receive_message', newMessage);
 
             const participants = await UserConversation.find({ conversationId }).select('userId').lean();
             
+            if (isFirstMessage) {
+                console.log(`[NEW CONVO] First message in ${conversationId}. Emitting to participants.`.magenta);
+                for (const participant of participants) {
+                    const participantId = participant.userId.toString();
+                    if (participantId !== senderId) {
+                        console.log(`[DEBUG] Attempting to send 'new_conversation_received' to user ${participantId}`.yellow);
+                        
+                        const completeConvoData = await getCompleteConversationForUser(participantId, conversationId);
+                        
+                        console.log(`[DEBUG] Fetched completeConvoData for ${participantId}:`, completeConvoData);
+
+                        if (completeConvoData) {
+                            io.to(participantId).emit('new_conversation_received', completeConvoData);
+                            console.log(`[DEBUG] Successfully emitted 'new_conversation_received' to ${participantId}`.green);
+                        } else {
+                            console.error(`[DEBUG] FAILED to fetch completeConvoData for user ${participantId}. Event not sent.`.red);
+                        }
+                    }
+                }
+            }
+
             participants.forEach(participant => {
                 const participantId = participant.userId.toString();
                 io.to(participantId).emit('conversation_updated', {
