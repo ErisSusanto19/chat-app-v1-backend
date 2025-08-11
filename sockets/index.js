@@ -1,5 +1,6 @@
 const registerMessageHandler = require('./messageHandler');
 const registerRoomHandler = require('./roomHandler');
+const { registerStatusHandler, handleUserConnection } = require('./statusHandler');
 
 const initializeSocket = (io) => {
     io.use((socket, next) => {
@@ -17,8 +18,11 @@ const initializeSocket = (io) => {
         console.log(`⚡: User connected [socket ID: ${socket.id}, User ID: ${socket.userId}]`.cyan);
         socket.join(socket.userId);
 
+        handleUserConnection(io, socket);
+
         registerMessageHandler(io, socket);
         registerRoomHandler(io, socket);
+        registerStatusHandler(io, socket);
 
         socket.on("disconnect", (reason) => {
             console.log(`🔥: User disconnected [socket ID: ${socket.id}, reason: ${reason}`.red);
