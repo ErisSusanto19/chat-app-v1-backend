@@ -10,10 +10,38 @@ async function getCompleteConversationForUser(userId, conversationId) {
             { $match: { userId: userObjectId, conversationId: conversationObjectId } },
             { $lookup: { from: "conversations", localField: "conversationId", foreignField: "_id", as: "conversation" } },
             { $unwind: "$conversation" },
+            {
+                $lookup: {
+                    from: "messages",
+                    let: { conversationId: "$conversation._id" },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ["$conversationId", "$$conversationId"] },
+                                        { $ne: ["$senderId", userObjectId] },
+                                        { $ne: ["$status", "read"] }
+                                    ]
+                                }
+                            }
+                        },
+                        { $count: "count" }
+                    ],
+                    as: "unreadMessages"
+                }
+            },
+            {
+                $addFields: {
+                    unreadCount: {
+                        $ifNull: [{ $getField: { field: "count", input: { $arrayElemAt: ["$unreadMessages", 0] } } }, 0]
+                    }
+                }
+            },
             { $facet: {
                 groupConversation: [
                     { $match: { "conversation.isGroup": true } },
-                    { $project: { _id: 1, role: 1, isGroup: "$conversation.isGroup", conversationId: "$conversation._id", name: "$conversation.name", image: "$conversation.image", lastMessage: "$conversation.lastMessage", createdAt: 1, updatedAt: 1 } }
+                    { $project: { _id: 1, role: 1, isGroup: "$conversation.isGroup", conversationId: "$conversation._id", name: "$conversation.name", image: "$conversation.image", lastMessage: "$conversation.lastMessage", createdAt: 1, updatedAt: 1, unreadCount: 1 } }
                 ],
                 privateConversation: [
                     { $match: { "conversation.isGroup": false } },
@@ -24,7 +52,7 @@ async function getCompleteConversationForUser(userId, conversationId) {
                     { $lookup: { from: "contacts", let: { currentUser: "$userId", partnerEmail: "$partner.email" }, pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$userId", "$$currentUser"] }, { $eq: ["$email", "$$partnerEmail"] }] } } }], as: "contactDetails" } },
                     { $addFields: { contactEntry: { $arrayElemAt: ["$contactDetails", 0] } } },
                     { $addFields: { displayName: { $ifNull: ["$contactEntry.name", "$partner.name"] } } },
-                    { $project: { _id: 1, role: 1, isGroup: "$conversation.isGroup", conversationId: "$conversation._id", name: "$displayName", image: "$partner.image", lastMessage: "$conversation.lastMessage", createdAt: 1, updatedAt: 1, partner: 1 } }
+                    { $project: { _id: 1, role: 1, isGroup: "$conversation.isGroup", conversationId: "$conversation._id", name: "$displayName", image: "$partner.image", lastMessage: "$conversation.lastMessage", createdAt: 1, updatedAt: 1, partner: 1, unreadCount: 1 } }
                 ]
             }},
             { $project: { allConversation: { $setUnion: ["$groupConversation", "$privateConversation"] } } },

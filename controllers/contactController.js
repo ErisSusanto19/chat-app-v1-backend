@@ -40,7 +40,6 @@ class ContactController {
     })
 
     static getContacts = asyncHandler(async(req, res) => {
-        console.log("masuk get contacts");
         
         const { search, page = 1, limit = 15 } = req.query;
 

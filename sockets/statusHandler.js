@@ -78,7 +78,13 @@ const registerStatusHandler = (io, socket) => {
                     { $set: { "lastMessage.status": "read" } }
                 );
 
-                io.to(conversationId).emit('messages_read', { conversationId });
+                const participants = await UserConversation.find({ conversationId }).select('userId').lean();
+
+                for (const participant of participants) {
+                    const participantId = participant.userId.toString();
+                    io.to(participantId).emit('messages_read', { conversationId });
+                }
+                
                 console.log(`[READ] Emitted 'messages_read' for conversation ${conversationId}`.blue);
             }
         } catch (error) {

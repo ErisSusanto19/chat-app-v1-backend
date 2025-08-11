@@ -26,6 +26,39 @@ class UserConversationController {
             },
             {$unwind: "$conversation"}, //hasil dari lookup itu berupa array, maka disini perlu dibongkar
 
+            {
+                $lookup: {
+                    from: "messages",
+                    let: {conversationId: "$conversation._id"},
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        {$eq: ["$conversationId", "$$conversationId"]},
+                                        {$ne: ["$senderId", new mongoose.Types.ObjectId(userId)]},
+                                        {$ne: ["$status", "read"]}
+                                    ]
+                                }
+                            }
+                        },
+                        {$count: "count"}
+                    ],
+                    as: "unreadMessages"
+                }
+            },
+
+            {
+                $addFields: {
+                    unreadCount: {
+                        $ifNull: [
+                            { $getField: { field: "count", input: { $arrayElemAt: ["$unreadMessages", 0] } } },
+                            0
+                        ]
+                    }
+                }
+            },
+
             //3. Buat cabang query nya
             {
                 $facet: {
@@ -43,6 +76,7 @@ class UserConversationController {
                                 lastMessage: "$conversation.lastMessage",
                                 createdAt: 1,
                                 updatedAt: 1,
+                                unreadCount: 1
                             }
                         }
                     ],
@@ -144,7 +178,7 @@ class UserConversationController {
                                             $expr: {
                                                 $and: [
                                                     { $eq: ["$userId", "$$currentUser"] }, 
-                                                    { $eq: ["$email", "$$partnerEmail"] } // Asumsi field di contact adalah 'contactUserId'
+                                                    { $eq: ["$email", "$$partnerEmail"] }
                                                 ]
                                             }
                                         }
@@ -181,7 +215,8 @@ class UserConversationController {
                                 createdAt: 1,
                                 updatedAt: 1,
                                 // pivotPartner: 1,
-                                partner: 1
+                                partner: 1,
+                                unreadCount: 1
                             }
                         }
                     ]

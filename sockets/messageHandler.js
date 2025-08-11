@@ -21,27 +21,46 @@ const registerMessageHandler = (io, socket) => {
             io.to(conversationId).emit('receive_message', newMessage);
 
             const participants = await UserConversation.find({ conversationId }).select('userId').lean();
-            
-            if (isFirstMessage) {
-                console.log(`[NEW CONVO] First message in ${conversationId}. Emitting to participants.`.magenta);
-                for (const participant of participants) {
-                    const participantId = participant.userId.toString();
-                    if (participantId !== senderId) {
-                        const completeConvoData = await getCompleteConversationForUser(participantId, conversationId);
-                        if (completeConvoData) {
-                            io.to(participantId).emit('new_conversation_received', completeConvoData);
+            const recipient = participants.find(p => p.userId.toString() !== senderId);
+
+            let finalStatus = 'sent';
+
+            if (recipient) {
+                const recipientSocketId = recipient.userId.toString();
+                const recipientRoom = io.sockets.adapter.rooms.get(recipientSocketId);
+
+                if (recipientRoom && recipientRoom.size > 0) {
+                    finalStatus = 'delivered';
+         
+                    await Message.updateOne({ _id: newMessage._id }, { $set: { status: 'delivered' } });
+
+                    const payload = {
+                        updates: {
+                            [conversationId]: [newMessage._id]
                         }
+                    };
+
+                    io.to(senderId).emit('messages_delivered', payload);
+                }
+            }
+            
+            for (const participant of participants) {
+                const participantId = participant.userId.toString();
+
+                const completeConvoData = await getCompleteConversationForUser(participantId, conversationId);
+
+                if (completeConvoData) {
+                    if (completeConvoData.lastMessage) {
+                        completeConvoData.lastMessage.status = finalStatus;
+                    }
+
+                    if ((await Message.countDocuments({ conversationId })) === 1 && participantId !== senderId) {
+                        io.to(participantId).emit('new_conversation_received', completeConvoData);
+                    } else {
+                        io.to(participantId).emit('conversation_updated', completeConvoData);
                     }
                 }
             }
-
-            participants.forEach(participant => {
-                const participantId = participant.userId.toString();
-                io.to(participantId).emit('conversation_updated', {
-                    conversationId: conversationId,
-                    lastMessage: newMessage
-                });
-            });
 
             console.log(`[MESSAGE] Emitted message and updates for conversation ${conversationId}`);
 
