@@ -21,6 +21,8 @@ const io = new Server(httpServer, {
     }
 })
 
+app.set('socketio', io)
+
 app.use(cors())
 app.use(express.urlencoded({extended: false}))
 app.use(express.json())

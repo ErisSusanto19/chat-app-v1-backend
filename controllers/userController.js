@@ -16,6 +16,7 @@ class UserController {
     })
 
     static updateProfile = asyncHandler(async(req, res) => {
+        const io = req.app.get('socketio');
         const {name, phoneNumber, image} = req.body
 
         const _id = req.user.id
@@ -31,6 +32,31 @@ class UserController {
         if(!updatedUser){
             generateError("Forbidden: You do not have permission to access this resource.", 403)
         }
+
+        const updatePayload = {
+            userId: updatedUser._id.toString(),
+            name: updatedUser.name,
+            image: updatedUser.image
+        };
+
+        console.log(updatePayload, '<<< cek updatePayload');
+        
+
+        const userConversations = await UserConversation.find({ userId: updatedUser._id }).select('conversationId').lean();
+        const conversationIds = userConversations.map(c => c.conversationId);
+        const otherParticipants = await UserConversation.find({ 
+            conversationId: { $in: conversationIds },
+            userId: { $ne: updatedUser._id } 
+        }).distinct('userId');
+
+        otherParticipants.forEach(participantId => {
+            const recipientSocketId = onlineUsers.get(participantId.toString());
+            if (recipientSocketId) {
+                console.log(`[PROFILE_UPDATE] - Socket ID: ${recipientSocketId}, Payload: `, updatePayload);
+                
+                io.to(recipientSocketId).emit('profile_updated', updatePayload);
+            }
+        });
         
         res.status(200).json(updatedUser)
     })

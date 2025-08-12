@@ -197,7 +197,7 @@ class UserConversationController {
                         {
                             $addFields: {
                                 displayName: {
-                                    $ifNull: ["$contactEntry.name", "$partner.name"]
+                                    $ifNull: ["$contactEntry.name", "$partner.email"]
                                 }
                             }
                         },
