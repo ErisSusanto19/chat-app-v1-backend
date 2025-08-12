@@ -1,59 +1,10 @@
 const asyncHandler = require('express-async-handler')
 const generateError = require('../helpers/generateError')
 const User = require('../models/user')
-const { encodeToken } = require('../helpers/jwt')
-const { verifyPassword } = require('../helpers/bcrypt')
+const UserConversation = require('../models/userConversation')
+const onlineUsers = require('../sockets/onlineUsers')
 
 class UserController {
-    static register = asyncHandler(async (req, res) => {
-        const {name, email, password} = req.body
-
-        const newUser = await User.create({
-            name,
-            email,
-            hashedPassword: password
-        })
-
-        res.status(201).json({
-            access_token: encodeToken({id: newUser._id}),
-            _id: newUser._id,
-            name: newUser.name,
-            email: newUser.email,
-            image: newUser.image
-        })
-    })
-
-    static login = asyncHandler(async (req, res) => {
-        const {email, password} = req.body
-
-        if(!email){
-            generateError("Email is required", 400)
-        }
-
-        if(!password){
-            generateError("Password is required", 400)
-        }
-
-        const user = await User.findOne({email})
-        
-        if(!user){
-            generateError("Invalid email or password", 401)
-        }
-
-        const verifiedPassword = verifyPassword(password, user.hashedPassword)
-        
-        if(!verifiedPassword){
-            generateError("Invalid email or password", 401)
-        }
-
-        res.status(200).json({
-            access_token: encodeToken({id: user._id}),
-            _id: user._id,
-            name: user.name,
-            email: user.email,
-            image: user.image
-        })
-    })
 
     static getProfile = asyncHandler(async(req, res) => {
         const user = await User.findById(req.user.id).select("-hashedPassword -__v").lean()
@@ -76,13 +27,27 @@ class UserController {
 
         const updatedUser = await User.findByIdAndUpdate(_id, payload, options).select("-hashedPassword -__v")
 
-        console.log(updatedUser, 'cek hasil update');
         
         if(!updatedUser){
             generateError("Forbidden: You do not have permission to access this resource.", 403)
         }
-
+        
         res.status(200).json(updatedUser)
+    })
+    
+    static getOnlineContacts = asyncHandler(async(req, res) => {
+        const userId = req.user.id;
+        
+        const userConversations = await UserConversation.find({ userId }).select('conversationId').lean();
+        const conversationIds = userConversations.map(c => c.conversationId);
+        const otherParticipants = await UserConversation.find({ 
+            conversationId: { $in: conversationIds },
+            userId: { $ne: userId }
+        }).distinct('userId');
+
+        const onlineContacts = otherParticipants.filter(id => onlineUsers.has(id.toString()));
+
+        res.status(200).json(onlineContacts.map(id => id.toString()));
     })
 }
 

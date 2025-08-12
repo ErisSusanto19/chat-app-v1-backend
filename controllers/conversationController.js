@@ -6,6 +6,7 @@ const User = require('../models/user')
 const UserConversation = require('../models/userConversation')
 const Message = require('../models/message')
 const Contact = require('../models/contact')
+const onlineUsers = require('../sockets/onlineUsers')
 
 class ConversationController {
     static addConversation = async(req, res, next) => {//Tidak memakai express-async-handler karena didalamnya terdapat transaction yang penanganan erro hasil transaction  harus manual
@@ -37,7 +38,7 @@ class ConversationController {
                 }
             }
 
-            //Cek status registered pada tiap participant, karena conversation(private/group) akan dibuat jika participant berstatus registered
+            //Cek status registered pada tiap participants, karena conversation(private/group) akan dibuat jika participants berstatus registered
             let registeredUsers = await User.find({email: {$in: participants}}).session(session).lean()
 
             if(registeredUsers.length != participants.length){
@@ -49,7 +50,7 @@ class ConversationController {
 
                 const oldConversation = await Conversation.findOne({
                     isGroup: false,
-                    participant: { $all: [userId, partnerId], $size: 2 }
+                    participants: { $all: [userId, partnerId], $size: 2 }
                 }).session(session);
 
                 if (oldConversation) {
@@ -64,7 +65,7 @@ class ConversationController {
                 const newConversationArr = await Conversation.create([{
                     isGroup: false,
                     createdBy: userId,
-                    participant: [userId, partnerId]
+                    participants: [userId, partnerId]
                 }], { session });
 
                 const newConversation = newConversationArr[0];
@@ -147,7 +148,7 @@ class ConversationController {
         let messages = await Message.find({conversationId: id}).lean()
 
         if (!conversation.isGroup) {
-            const partnerId = conversation.participant.find(pId => pId.toString() !== userId.toString());
+            const partnerId = conversation.participants.find(pId => pId.toString() !== userId.toString());
 
             if (partnerId) {
                 const partner =  await User.findById(partnerId).select('name email image').lean()
@@ -161,10 +162,12 @@ class ConversationController {
                     if (contact && contact.name) {
                         conversation.name = contact.name;
                     } else {
-                        conversation.name = partner.name;
+                        conversation.name = partner.email;
                     }
 
-                    conversation.partnerDetails = partner;
+                    partner.isOnline = onlineUsers.has(partner._id.toString())
+
+                    conversation.partner = partner;
                 }
 
             }

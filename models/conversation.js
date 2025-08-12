@@ -31,7 +31,7 @@ const conversationSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.Mixed,
         default: {}
     },
-    participant: {
+    participants: {
         type: [mongoose.Schema.Types.ObjectId],
         default: null,
         required: function() {return !this.isGroup} //For private conversation
