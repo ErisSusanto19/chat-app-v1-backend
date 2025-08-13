@@ -33,5 +33,7 @@ const contactSchema = new mongoose.Schema({
 
 contactSchema.index({ userId: 1, email: 1 }, { unique: true });
 
+contactSchema.index({ name: "text" });
+
 const Contact = mongoose.model("Contact", contactSchema)
 module.exports = Contact

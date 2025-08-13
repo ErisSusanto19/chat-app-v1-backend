@@ -39,9 +39,6 @@ class UserController {
             image: updatedUser.image
         };
 
-        console.log(updatePayload, '<<< cek updatePayload');
-        
-
         const userConversations = await UserConversation.find({ userId: updatedUser._id }).select('conversationId').lean();
         const conversationIds = userConversations.map(c => c.conversationId);
         const otherParticipants = await UserConversation.find({ 
@@ -52,8 +49,6 @@ class UserController {
         otherParticipants.forEach(participantId => {
             const recipientSocketId = onlineUsers.get(participantId.toString());
             if (recipientSocketId) {
-                console.log(`[PROFILE_UPDATE] - Socket ID: ${recipientSocketId}, Payload: `, updatePayload);
-                
                 io.to(recipientSocketId).emit('profile_updated', updatePayload);
             }
         });

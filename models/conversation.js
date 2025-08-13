@@ -34,11 +34,13 @@ const conversationSchema = new mongoose.Schema({
     participants: {
         type: [mongoose.Schema.Types.ObjectId],
         default: null,
-        required: function() {return !this.isGroup} //For private conversation
+        required: function() {return !this.isGroup}
     }
 }, {
     timestamps: true
 })
+
+conversationSchema.index({ name: "text" });
 
 const Conversation = mongoose.model("Conversation", conversationSchema)
 module.exports = Conversation

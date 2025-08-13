@@ -51,7 +51,7 @@ async function getCompleteConversationForUser(userId, conversationId) {
                     { $addFields: { partner: { $cond: { if: { $gt: [{ $size: "$partner" }, 0] }, then: { $arrayElemAt: ["$partner", 0] }, else: null } } } },
                     { $lookup: { from: "contacts", let: { currentUser: "$userId", partnerEmail: "$partner.email" }, pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$userId", "$$currentUser"] }, { $eq: ["$email", "$$partnerEmail"] }] } } }], as: "contactDetails" } },
                     { $addFields: { contactEntry: { $arrayElemAt: ["$contactDetails", 0] } } },
-                    { $addFields: { displayName: { $ifNull: ["$contactEntry.name", "$partner.name"] } } },
+                    { $addFields: { displayName: { $ifNull: ["$contactEntry.name", "$partner.email"] } } },
                     { $project: { _id: 1, role: 1, isGroup: "$conversation.isGroup", conversationId: "$conversation._id", name: "$displayName", image: "$partner.image", lastMessage: "$conversation.lastMessage", createdAt: 1, updatedAt: 1, partner: 1, unreadCount: 1 } }
                 ]
             }},

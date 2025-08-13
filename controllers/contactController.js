@@ -51,7 +51,7 @@ class ContactController {
             let selectedUsers = await User.find({email: {$in: unregEmails}}).lean()
 
             if(selectedUsers.length > 0){
-                let userEmails = users.map(user => user.email)
+                let userEmails = selectedUsers.map(user => user.email)
                 await Contact.updateMany({email: {$in: userEmails}}, {$set: {status: "Registered"}})
 
                 // let bulkOp = users.map(user => ({
