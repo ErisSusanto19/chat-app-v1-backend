@@ -7,6 +7,7 @@ const UserConversation = require('../models/userConversation')
 const Message = require('../models/message')
 const Contact = require('../models/contact')
 const onlineUsers = require('../sockets/onlineUsers')
+const { getSingleFullConversation } = require('../helpers/conversationHelpers')
 
 class ConversationController {
     static addConversation = async(req, res, next) => {//Tidak memakai express-async-handler karena didalamnya terdapat transaction yang penanganan erro hasil transaction  harus manual
@@ -76,13 +77,16 @@ class ConversationController {
                 ];
                 await UserConversation.insertMany(dataEntries, { session });
 
+                const fullNewConversation = await getSingleFullConversation(userId, newConversation._id.toString(), session)
+
                 await session.commitTransaction();
                 session.endSession();
+
+                console.log(fullNewConversation, 'cek hasil fullNewConversation (Private)');
                 
                 return res.status(201).json({
                     message: "Conversation successfully created",
-                    // data: newConversation
-                    data: { conversationId: newConversation._id }
+                    data: fullNewConversation
                 });
 
             } else {
@@ -116,13 +120,17 @@ class ConversationController {
 
                 await UserConversation.insertMany(dataEntries, { session });
 
+                const fullNewConversation = await getSingleFullConversation(userId, newConversation._id.toString(), session)
+
                 await session.commitTransaction();
                 session.endSession();
+
+                console.log(fullNewConversation, 'cek hasil fullNewConversation (Group)');
+                
                 
                 return res.status(201).json({
                     message: "Conversation successfully created",
-                    // data: newConversation
-                    data: { conversationId: newConversation._id }
+                    data: fullNewConversation
                 });
             }
 
@@ -137,46 +145,74 @@ class ConversationController {
     }
 
     static getConversationById = asyncHandler(async(req, res) => {
-        const userId = req.user.id
-        const { id } = req.params
+        const requestingUserId = req.user.id
+        const { id: conversationId } = req.params
 
-        let conversation = await Conversation.findById(id).lean()
+        const conversation = await Conversation.findById(conversationId).lean();
+
         if (!conversation) {
             return generateError("Conversation not found", 404);
         }
         
-        let messages = await Message.find({conversationId: id}).lean()
+        const isParticipant = conversation.participants.some(pId => pId.toString() === requestingUserId);
+        if (!isParticipant) {
+            return generateError("You are not a participant of this conversation", 403);
+        }
 
-        if (!conversation.isGroup) {
-            const partnerId = conversation.participants.find(pId => pId.toString() !== userId.toString());
+        const enrichedParticipants = await Promise.all(
+            conversation.participants.map(async (participantId) => {
+                const userIdString = participantId.toString();
 
-            if (partnerId) {
-                const partner =  await User.findById(partnerId).select('name email image').lean()
+                const user = await User.findById(userIdString).select('name email image').lean();
+                if (!user) return null;
 
-                if(partner){
-                    const contact = await Contact.findOne({ 
-                        userId: userId, 
-                        email: partner.email
-                    }).lean();
+                const pivot = await UserConversation.findOne({ conversationId, userId: userIdString }).select('role').lean();
 
-                    if (contact && contact.name) {
-                        conversation.name = contact.name;
-                    } else {
-                        conversation.name = partner.email;
-                    }
+                let displayName = user.name;
 
-                    partner.isOnline = onlineUsers.has(partner._id.toString())
+                if (userIdString !== requestingUserId) {
+                    const contactEntry = await Contact.findOne({ 
+                        userId: requestingUserId,
+                        email: user.email
+                    }).select('name').lean();
 
-                    conversation.partner = partner;
+                    displayName = contactEntry?.name || user.email;
                 }
+                
+                return {
+                    _id: userIdString,
+                    userId: userIdString,
+                    name: displayName,
+                    image: user.image,
+                    role: pivot?.role || null,
+                    isOnline: onlineUsers.has(userIdString)
+                };
+            })
+        );
+        
+        const finalParticipants = enrichedParticipants.filter(p => p !== null);
 
+        const responseData = {
+            _id: conversation._id,
+            conversationId: conversation._id,
+            isGroup: conversation.isGroup,
+            name: conversation.name,
+            image: conversation.image,
+            description: conversation.description,
+            createdBy: conversation.createdBy,
+            createdAt: conversation.createdAt,
+            participants: finalParticipants,
+        };
+
+        if (!responseData.isGroup) {
+            const partner = responseData.participants.find(p => p.userId !== requestingUserId);
+            if (partner) {
+                responseData.name = partner.name;
+                responseData.partner = partner;
             }
         }
 
-        res.status(200).json({
-            ... conversation,
-            messages
-        })
+        res.status(200).json(responseData);
     })
 
     static updateConversationById = asyncHandler(async(req, res) => {

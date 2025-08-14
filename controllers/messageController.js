@@ -86,9 +86,17 @@ class MessageController {
             generateError("Access denied", 403);
         }
 
-        let messages = await Message.find({conversationId}).lean()
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 50;
+        const skip = (page - 1) * limit;
 
-        res.status(200).json(messages)
+        const messages = await Message.find({ conversationId })
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean();
+        
+        res.status(200).json(messages.reverse());
     })
 
     static updateDeliveredMessages = async(req, res, next) => {
