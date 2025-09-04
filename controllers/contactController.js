@@ -53,20 +53,6 @@ class ContactController {
             if(selectedUsers.length > 0){
                 let userEmails = selectedUsers.map(user => user.email)
                 await Contact.updateMany({email: {$in: userEmails}}, {$set: {status: "Registered"}})
-
-                // let bulkOp = users.map(user => ({
-                //     updateOne: {
-                //         filter: {userId: user.id, email: user.email},
-                //         update: {
-                //             $set: {
-                //                 status: "Registered",
-                //                 detail : {name: user.name, phoneNumber: user.phoneNumber, image: user.image}
-                //             }
-                //         }
-                //     }
-                // }))
-
-                // await Contact.bulkWrite(bulkOp)
             }
         }
 

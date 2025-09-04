@@ -13,7 +13,7 @@ class UserConversationController {
         const userId = req.user.id
         
         const conversations = await getFullConversationsForUser(userId) 
-
+        
         res.status(200).json(conversations)
     })
 
@@ -135,6 +135,8 @@ class UserConversationController {
 
         //#2
         const conversations = await getFullConversationsForUser(userId, conversationIdsToFilter)
+
+        console.log(conversations, '<<< cek conversations');
 
         const filteredConversations = conversations.filter(convo => {
             const isCreator = convo.createdBy?.toString() === userId;

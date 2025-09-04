@@ -50,7 +50,7 @@ function buildConversationEnrichmentPipeline(userObjectId) {
                     }
                 ],
                 privateConversation: [
-                    { $match: { "conversation.isGroup": false } },
+                    { $match: { "conversation.isGroup": false, "conversation.participants": { $size: 2 } } },
                     { $lookup: { from: "userconversations", let: { conversationId: "$conversationId", currentUser: "$userId" }, pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$conversationId", "$$conversationId"] }, { $ne: ["$userId", "$$currentUser"] }] } } }], as: "pivotPartner" } },
                     { $addFields: { pivotPartnerId: { $ifNull: [{ $getField: { field: "userId", input: { $arrayElemAt: ["$pivotPartner", 0] } } }, null] } } },
                     { $lookup: { from: "users", let: { partnerId: "$pivotPartnerId" }, pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$_id", "$$partnerId"] }] } } }, { $project: { _id: 1, name: 1, email: 1, image: 1 } }], as: "partner" } },
@@ -73,10 +73,40 @@ function buildConversationEnrichmentPipeline(userObjectId) {
                             createdBy: "$conversation.createdBy"
                         } 
                     }
+                ],
+                noteToSelfConversation: [
+                    { $match: { "conversation.isGroup": false, "conversation.participants": { $size: 1 } } },
+                    { $lookup: { from: "users", localField: "conversation.participants.0", foreignField: "_id", as: "user" } },
+                    { $unwind: "$user" },
+                    {
+                        $addFields: {
+                            partner: {
+                                _id: "$user._id",
+                                name: "$user.name",
+                                email: "$user.email",
+                                image: "$user.image",
+                            }
+                        }
+                    },
+                    { 
+                        $project: { 
+                            _id: 1, 
+                            role: 1, 
+                            conversationId: "$conversation._id",
+                            isGroup: "$conversation.isGroup",
+                            name: "$user.name",
+                            image: "$user.image",
+                            lastMessage: "$conversation.lastMessage", 
+                            unreadCount: 1,
+                            partner: 1,
+                            createdAt: 1,
+                            createdBy: "$conversation.createdBy"
+                        } 
+                    }
                 ]
             }
         },
-        { $project: { allConversation: { $setUnion: ["$groupConversation", "$privateConversation"] } } },
+        { $project: { allConversation: { $setUnion: ["$groupConversation", "$privateConversation", "$noteToSelfConversation"] } } },
         { $unwind: "$allConversation" },
         { $replaceRoot: { newRoot: "$allConversation" } }
     ];

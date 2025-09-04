@@ -13,8 +13,11 @@ class ConversationController {
     static addConversation = async(req, res, next) => {//Tidak memakai express-async-handler karena didalamnya terdapat transaction yang penanganan erro hasil transaction  harus manual
         
         const userId = req.user.id
+        const creatorEmail = req.user.email
         const {isGroup, name, image, description, participants} = req.body
         //Participants berupa array of string email dari contact
+
+        const uniqueParticipantEmails = [...new Set(participants)].filter(email => email !== creatorEmail);
 
         const session = await mongoose.startSession()
         session.startTransaction()
@@ -26,68 +29,112 @@ class ConversationController {
                 generateError("Participants must be an array.", 400)
             }
 
-            if(!isGroup){//Cek untuk chat pribadi
-                if(participants.length !== 1){
-                    generateError("A private conversation requires exactly one contact.", 400)
-                }
-            } else{//Cek untuk anggota group
-                if(participants.length < 1){
-                    generateError("A group must have at least one contact to be member of group.")
-                }
-                if(participants.length > 99){//user terkait sudah terhitung sebagai penghuni group dengan status admin
-                    generateError("A group can not have more than 100 members.")
-                }
-            }
-
             //Cek status registered pada tiap participants, karena conversation(private/group) akan dibuat jika participants berstatus registered
-            let registeredUsers = await User.find({email: {$in: participants}}).session(session).lean()
+            let registeredUsers = await User.find({email: {$in: uniqueParticipantEmails}}).session(session).lean()
 
-            if(registeredUsers.length != participants.length){
+            if(registeredUsers.length != uniqueParticipantEmails.length){
                 generateError("One or more contacts are not registered users.", 400)
             }
 
             if (!isGroup) {
-                const partnerId = registeredUsers[0]._id;
 
-                const oldConversation = await Conversation.findOne({
-                    isGroup: false,
-                    participants: { $all: [userId, partnerId], $size: 2 }
-                }).session(session);
-
-                if (oldConversation) {
-                    await session.commitTransaction();
-                    session.endSession();
-                    return res.status(200).json({
-                        message: "Conversation successfully opened",
-                        data: oldConversation
-                    });
+                if(participants.length === 0){
+                    generateError("Please select a contact to start a conversation.", 400)
                 }
 
-                const newConversationArr = await Conversation.create([{
-                    isGroup: false,
-                    createdBy: userId,
-                    participants: [userId, partnerId]
-                }], { session });
+                if(uniqueParticipantEmails.length === 0){
+                    const oldSelfConversation = await Conversation.findOne({
+                        isGroup: false,
+                        participants: [userId]
+                    }).session(session)
 
-                const newConversation = newConversationArr[0];
-                
-                const dataEntries = [
-                    { userId, conversationId: newConversation._id, role: null },
-                    { userId: partnerId, conversationId: newConversation._id, role: null }
-                ];
-                await UserConversation.insertMany(dataEntries, { session });
+                    if(oldSelfConversation){
+                        await session.commitTransaction();
+                        session.endSession();
+                        return res.status(200).json({
+                            message: "Conversation successfully opened",
+                            data: oldSelfConversation
+                        });
+                    }
 
-                const fullNewConversation = await getSingleFullConversation(userId, newConversation._id.toString(), session)
+                    const newSelfConversationArr = await Conversation.create([{
+                        isGroup: false,
+                        createdBy: userId,
+                        participants: [userId]
+                    }], { session })
 
-                await session.commitTransaction();
-                session.endSession();
-                
-                return res.status(201).json({
-                    message: "Conversation successfully created",
-                    data: fullNewConversation
-                });
+                    const newSelfConversation = newSelfConversationArr[0]
+
+                    await UserConversation.create([{
+                        userId,
+                        conversationId: newSelfConversation._id,
+                        role: null
+                    }], { session })
+
+                    const fullNewConversation = await getSingleFullConversation(userId, newSelfConversation._id.toString(), session)
+
+                    await session.commitTransaction();
+                    session.endSession();
+                    
+                    return res.status(201).json({
+                        message: "Conversation successfully created",
+                        data: fullNewConversation
+                    });
+
+                } else if (uniqueParticipantEmails.length === 1) {
+                    
+                    const partnerId = registeredUsers[0]._id;
+    
+                    const oldConversation = await Conversation.findOne({
+                        isGroup: false,
+                        participants: { $all: [userId, partnerId], $size: 2 }
+                    }).session(session);
+    
+                    if (oldConversation) {
+                        await session.commitTransaction();
+                        session.endSession();
+                        return res.status(200).json({
+                            message: "Conversation successfully opened",
+                            data: oldConversation
+                        });
+                    }
+    
+                    const newConversationArr = await Conversation.create([{
+                        isGroup: false,
+                        createdBy: userId,
+                        participants: [userId, partnerId]
+                    }], { session });
+    
+                    const newConversation = newConversationArr[0];
+                    
+                    const dataEntries = [
+                        { userId, conversationId: newConversation._id, role: null },
+                        { userId: partnerId, conversationId: newConversation._id, role: null }
+                    ];
+                    await UserConversation.insertMany(dataEntries, { session });
+    
+                    const fullNewConversation = await getSingleFullConversation(userId, newConversation._id.toString(), session)
+    
+                    await session.commitTransaction();
+                    session.endSession();
+                    
+                    return res.status(201).json({
+                        message: "Conversation successfully created",
+                        data: fullNewConversation
+                    });
+                } else {
+                    generateError("A private conversation can only have one other participant.", 400);
+                }
 
             } else {
+
+                if(uniqueParticipantEmails.length < 1){
+                    generateError("A group must have at least one contact besides yourself to be member of group.")
+                }
+
+                if(uniqueParticipantEmails.length > 99){
+                    generateError("A group can not have more than 100 members.")
+                }
 
                 const newConversationArr = await Conversation.create([{
                     isGroup: true,
@@ -215,11 +262,12 @@ class ConversationController {
         };
 
         if (!responseData.isGroup) {
-            const partner = responseData.participants.find(p => p.userId !== requestingUserId);
+            const partner = responseData.participants.find(p => p.userId !== requestingUserId) || responseData.participants[0];
             if (partner) {
                 responseData.name = partner.name;
                 responseData.partner = partner;
             }
+            
         }
 
         res.status(200).json(responseData);

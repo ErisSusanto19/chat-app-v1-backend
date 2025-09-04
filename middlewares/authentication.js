@@ -25,7 +25,8 @@ const authenticate = assyncHandler(async(req, res, next) => {
     }
 
     req.user = {
-        id: payload.id
+        id: payload.id,
+        email: user.email
     }
 
     next()
