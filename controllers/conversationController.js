@@ -81,8 +81,6 @@ class ConversationController {
 
                 await session.commitTransaction();
                 session.endSession();
-
-                console.log(fullNewConversation, 'cek hasil fullNewConversation (Private)');
                 
                 return res.status(201).json({
                     message: "Conversation successfully created",
@@ -124,9 +122,6 @@ class ConversationController {
 
                 await session.commitTransaction();
                 session.endSession();
-
-                console.log(fullNewConversation, 'cek hasil fullNewConversation (Group)');
-                
                 
                 return res.status(201).json({
                     message: "Conversation successfully created",

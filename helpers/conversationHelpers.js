@@ -23,6 +23,17 @@ function buildConversationEnrichmentPipeline(userObjectId) {
                 groupConversation: [
                     { $match: { "conversation.isGroup": true } },
                     { 
+                        $lookup: {
+                            from: "userconversations",
+                            let: { conversationId: "$conversation._id"},
+                            pipeline: [
+                                { $match: { $expr: { $eq: ["$conversationId", "$$conversationId"]}}},
+                                { $count: "count" }
+                            ],
+                            as: "members"
+                        }
+                    },
+                    { 
                         $project: { 
                             _id: 1, 
                             role: 1,
@@ -32,7 +43,7 @@ function buildConversationEnrichmentPipeline(userObjectId) {
                             image: "$conversation.image",
                             lastMessage: "$conversation.lastMessage", 
                             unreadCount: 1,
-                            memberCount: { $size: "$conversation.participants" },
+                            memberCount: { $ifNull: [{ $getField: { field: "count", input: { $arrayElemAt: ["$members", 0]}}}, 0]},
                             createdAt: 1,
                             createdBy: "$conversation.createdBy"
                         } 
@@ -88,8 +99,10 @@ async function getFullConversationsForUser(userId, conversationIdsToFilter = nul
             }
         })
     }
-
+    
     pipeline.push(...buildConversationEnrichmentPipeline(userObjectId))
+
+    console.log(pipeline, '<<< pipeline from getFullConversationForUser');
 
     pipeline.push(
         {
@@ -120,6 +133,10 @@ async function getFullConversationsForUser(userId, conversationIdsToFilter = nul
 }
 
 async function getSingleFullConversation(userId, conversationId, session = null) {
+
+    console.log(userId, '<<< userID');
+    console.log(conversationId, '<<< conversationID');
+    
 
     const result = await getFullConversationsForUser(userId, [conversationId], session);
     console.log(`result: `, result);
