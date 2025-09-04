@@ -102,8 +102,6 @@ async function getFullConversationsForUser(userId, conversationIdsToFilter = nul
     
     pipeline.push(...buildConversationEnrichmentPipeline(userObjectId))
 
-    console.log(pipeline, '<<< pipeline from getFullConversationForUser');
-
     pipeline.push(
         {
             $addFields: {
@@ -133,10 +131,6 @@ async function getFullConversationsForUser(userId, conversationIdsToFilter = nul
 }
 
 async function getSingleFullConversation(userId, conversationId, session = null) {
-
-    console.log(userId, '<<< userID');
-    console.log(conversationId, '<<< conversationID');
-    
 
     const result = await getFullConversationsForUser(userId, [conversationId], session);
     console.log(`result: `, result);

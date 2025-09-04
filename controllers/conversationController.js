@@ -149,42 +149,57 @@ class ConversationController {
             return generateError("Conversation not found", 404);
         }
         
-        const isParticipant = conversation.participants.some(pId => pId.toString() === requestingUserId);
+        let participantIds = [];
+
+        if(conversation.isGroup){
+            const userConversations = await UserConversation.find({ conversationId }).select('userId').lean()
+            participantIds = userConversations.map(uc => uc.userId)
+        } else {
+            participantIds = conversation.participants || []
+        }
+
+        const isParticipant = participantIds.some(pId => pId.toString() === requestingUserId);
         if (!isParticipant) {
             return generateError("You are not a participant of this conversation", 403);
         }
 
-        const enrichedParticipants = await Promise.all(
-            conversation.participants.map(async (participantId) => {
-                const userIdString = participantId.toString();
-
-                const user = await User.findById(userIdString).select('name email image').lean();
-                if (!user) return null;
-
-                const pivot = await UserConversation.findOne({ conversationId, userId: userIdString }).select('role').lean();
-
-                let displayName = user.name;
-
-                if (userIdString !== requestingUserId) {
-                    const contactEntry = await Contact.findOne({ 
-                        userId: requestingUserId,
-                        email: user.email
-                    }).select('name').lean();
-
-                    displayName = contactEntry?.name || user.email;
-                }
-                
-                return {
-                    _id: userIdString,
-                    userId: userIdString,
-                    name: displayName,
-                    image: user.image,
-                    role: pivot?.role || null,
-                    isOnline: onlineUsers.has(userIdString)
-                };
-            })
-        );
         
+        const [users, pivots, contacts] = await Promise.all([
+            User.find({_id: { $in: participantIds}}).select('name email image').lean(),
+            UserConversation.find({ conversationId, userId: { $in: participantIds}}).select('role userId').lean(),
+            Contact.find({userId: requestingUserId}).select('name email').lean()
+        ])
+        
+        const usersMap = new Map(users.map(u => [u._id.toString(), u]))
+        const pivotsMap = new Map(pivots.map(p => [p.userId.toString(), p]))
+        const contactsMap = new Map(contacts.map(c => [c.email, c]))
+        
+        const enrichedParticipants = participantIds.map(participantId => {
+            const userIdString = participantId.toString();
+
+            const user = usersMap.get(userIdString)
+            if (!user) return null;
+
+            const pivot = pivotsMap.get(userIdString)
+
+            let displayName = user.name;
+
+            if (userIdString !== requestingUserId) {
+                const contactEntry = contactsMap.get(user.email)
+
+                displayName = contactEntry?.name || user.email;
+            }
+            
+            return {
+                _id: userIdString,
+                userId: userIdString,
+                name: displayName,
+                image: user.image,
+                role: pivot?.role || null,
+                isOnline: onlineUsers.has(userIdString)
+            };
+        })
+
         const finalParticipants = enrichedParticipants.filter(p => p !== null);
 
         const responseData = {
