@@ -136,8 +136,6 @@ class UserConversationController {
         //#2
         const conversations = await getFullConversationsForUser(userId, conversationIdsToFilter)
 
-        console.log(conversations, '<<< cek conversations');
-
         const filteredConversations = conversations.filter(convo => {
             const isCreator = convo.createdBy?.toString() === userId;
             const hasMessage = !!convo.lastMessage;

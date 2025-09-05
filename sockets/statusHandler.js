@@ -61,32 +61,63 @@ const registerStatusHandler = (io, socket) => {
         try {
             const userId = socket.userId;
 
-            const updateResult = await Message.updateMany(
-                {
-                    conversationId: conversationId,
-                    senderId: { $ne: userId },
-                    status: { $ne: 'read' }
-                },
-                {
-                    $set: { status: 'read', 'status_changed_at.read_at': new Date() }
-                }
-            );
+            const conversation = await Conversation.findById(conversationId).select('participants').lean();
+            if (!conversation) return;
 
-            if (updateResult.modifiedCount > 0) {
-                await Conversation.updateOne(
-                    { "_id": conversationId, "lastMessage.status": { $ne: 'read' }, "lastMessage.senderId": { $ne: userId } },
-                    { $set: { "lastMessage.status": "read" } }
+            const participantIds = conversation.participants.map(p => p.toString());
+        
+            const isNoteToSelf = participantIds.length === 1 && participantIds[0] === userId.toString();
+
+            if (isNoteToSelf) {
+                const updateResult = await Message.updateMany(
+                    {
+                        conversationId: conversationId,
+                        status: { $ne: 'read' } 
+                    },
+                    { 
+                        $set: { status: 'read', 'status_changed_at.read_at': new Date() } 
+                    }
                 );
 
-                const participants = await UserConversation.find({ conversationId }).select('userId').lean();
+                if (updateResult.modifiedCount > 0) {
+                    const latestMessage = await Message.findOne({ conversationId }).sort({ createdAt: -1 });
 
-                for (const participant of participants) {
-                    const participantId = participant.userId.toString();
-                    io.to(participantId).emit('messages_read', { conversationId });
+                    if (latestMessage) {
+                        await Conversation.updateOne(
+                            { _id: conversationId },
+                            { $set: { lastMessage: latestMessage } } 
+                        );
+                    }
+
+                    io.to(userId.toString()).emit('messages_read', { conversationId });
+                    console.log(`[READ] Emitted 'messages_read' for self-conversation ${conversationId}`.blue);
                 }
-                
-                console.log(`[READ] Emitted 'messages_read' for conversation ${conversationId}`.blue);
+            } else {
+                const updateResult = await Message.updateMany(
+                    {
+                        conversationId: conversationId,
+                        senderId: { $ne: userId },
+                        status: { $ne: 'read' }
+                    },
+                    {
+                        $set: { status: 'read', 'status_changed_at.read_at': new Date() }
+                    }
+                );
+    
+                if (updateResult.modifiedCount > 0) {
+                    await Conversation.updateOne(
+                        { "_id": conversationId, "lastMessage.status": { $ne: 'read' }, "lastMessage.senderId": { $ne: userId } },
+                        { $set: { "lastMessage.status": "read" } }
+                    );
+    
+                    for (const participantId of participantIds) {
+                        io.to(participantId).emit('messages_read', { conversationId });
+                    }
+                    
+                    console.log(`[READ] Emitted 'messages_read' for conversation ${conversationId}`.blue);
+                }
             }
+
         } catch (error) {
             console.error(`[STATUS HANDLER] Error marking messages as read for convo ${conversationId}:`, error);
         }
