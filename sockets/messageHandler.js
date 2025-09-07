@@ -1,5 +1,6 @@
 const MessageController = require('../controllers/messageController');
 const UserConversation = require('../models/userConversation');
+const Conversation = require('../models/conversation')
 const Message = require('../models/message');
 const onlineUsers = require('./onlineUsers')
 const { getCompleteConversationForUser, getSingleFullConversation } = require('../helpers/conversationHelpers');
@@ -17,6 +18,7 @@ const registerMessageHandler = (io, socket) => {
             const newMessage = await MessageController.createAndSaveMessage(conversationId, senderId, content);
             io.to(conversationId).emit('receive_message', newMessage);
             
+            const conversation = await Conversation.findById(conversationId).select('isGroup participants').lean();
             const participants = await UserConversation.find({ conversationId }).select('userId').lean();
             const participantIds = participants.map(p => p.userId.toString());
 
@@ -37,15 +39,55 @@ const registerMessageHandler = (io, socket) => {
                     io.to(senderId).emit('conversation_updated', completeConvoData);
                 }
 
+            } else if(conversation.isGroup){
+                const otherParticipantIds = participantIds.filter(pId => pId !== senderId);
+                let isDelivered = false;
+
+                for (const pId of otherParticipantIds) {
+                    const socketIds = onlineUsers.get(pId);
+                    if (socketIds && socketIds.size > 0) {
+                        isDelivered = true;
+                        break;
+                    }
+                }
+
+                if (isDelivered) {
+                    await Message.updateOne({ _id: newMessage._id }, { $set: { status: 'delivered' } });
+                    const payload = { updates: { [conversationId]: [newMessage._id] } };
+                    io.to(senderId).emit('messages_delivered', payload);
+                }
+
+                for (const participantId of participantIds) {
+                    const completeConvoData = await getSingleFullConversation(participantId, conversationId);
+                    if (!completeConvoData) continue;
+
+                    let isParticipantInRoom = false;
+                    const socketIds = onlineUsers.get(participantId);
+                    if (socketIds) {
+                        const roomSockets = io.sockets.adapter.rooms.get(conversationId);
+                        for (const socketId of socketIds) {
+                            if (roomSockets?.has(socketId)) {
+                                isParticipantInRoom = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (isParticipantInRoom && participantId !== senderId) {
+                        io.to(conversationId).emit('messages_read', { conversationId });
+                    }
+
+                    io.to(participantId).emit('conversation_updated', completeConvoData);
+                }
+
             } else {
 
-                const recipient = participants.find(p => p.userId.toString() !== senderId);
+                const recipientId = participantIds.find(pId => pId !== senderId);
 
-                if (recipient) {
-                    const recipientSocketId = onlineUsers.get(recipient.userId.toString());
-                    const recipientRoom = io.sockets.adapter.rooms.get(recipientSocketId);
-
-                    if (recipientRoom && recipientRoom.size > 0) {
+                if (recipientId) {
+                    const recipientSocketIds = onlineUsers.get(recipientId);
+                    
+                    if (recipientSocketIds && recipientSocketIds.size > 0) {
                         await Message.updateOne({ _id: newMessage._id }, { $set: { status: 'delivered' } });
                         const payload = { updates: { [conversationId]: [newMessage._id] } };
                         io.to(senderId).emit('messages_delivered', payload);
@@ -56,29 +98,55 @@ const registerMessageHandler = (io, socket) => {
                     const participantId = participant.userId.toString();
     
                     const completeConvoData = await getSingleFullConversation(participantId, conversationId)
+                    if (!completeConvoData) continue;
     
-                    if (completeConvoData) {
-                        const roomSockets = io.sockets.adapter.rooms.get(conversationId);
-                        const participantSocketId = onlineUsers.get(participantId);
-                        const isParticipantInRoom = roomSockets?.has(participantSocketId);
+                    // if (completeConvoData) {
+                    //     const roomSockets = io.sockets.adapter.rooms.get(conversationId);
+                    //     const participantSocketId = onlineUsers.get(participantId);
+                    //     const isParticipantInRoom = roomSockets?.has(participantSocketId);
     
-                        if (isParticipantInRoom && participantId !== senderId) {
-                            completeConvoData.unreadCount = 0;
+                    //     if (isParticipantInRoom && participantId !== senderId) {
+                    //         completeConvoData.unreadCount = 0;
     
-                            if (completeConvoData.lastMessage) {
-                                completeConvoData.lastMessage.status = 'read';
+                    //         if (completeConvoData.lastMessage) {
+                    //             completeConvoData.lastMessage.status = 'read';
+                    //         }
+    
+                    //         io.to(conversationId).emit('messages_read', { conversationId });
+    
+                    //         Message.updateOne({ _id: newMessage._id }, { $set: { status: 'read' } }).exec();
+                    //     }
+    
+                    //     if (isFirstMessage && participantId !== senderId) {
+                    //         io.to(participantId).emit('new_conversation_received', completeConvoData);
+                    //     } else {
+                    //         io.to(participantId).emit('conversation_updated', completeConvoData);
+                    //     }
+                    // }
+
+                    if (participantId === recipientId) {
+                        let isRecipientInRoom = false;
+                        const socketIds = onlineUsers.get(recipientId);
+                        if (socketIds) {
+                            const roomSockets = io.sockets.adapter.rooms.get(conversationId);
+                            for (const socketId of socketIds) {
+                                if (roomSockets?.has(socketId)) {
+                                    isRecipientInRoom = true;
+                                    break;
+                                }
                             }
-    
+                        }
+                        
+                        if (isRecipientInRoom) {
+                            await Message.updateOne({ _id: newMessage._id }, { $set: { status: 'read' } });
                             io.to(conversationId).emit('messages_read', { conversationId });
-    
-                            Message.updateOne({ _id: newMessage._id }, { $set: { status: 'read' } }).exec();
                         }
-    
-                        if (isFirstMessage && participantId !== senderId) {
-                            io.to(participantId).emit('new_conversation_received', completeConvoData);
-                        } else {
-                            io.to(participantId).emit('conversation_updated', completeConvoData);
-                        }
+                    }
+
+                    if (isFirstMessage && participantId !== senderId) {
+                        io.to(participantId).emit('new_conversation_received', completeConvoData);
+                    } else {
+                        io.to(participantId).emit('conversation_updated', completeConvoData);
                     }
                 }
             }
